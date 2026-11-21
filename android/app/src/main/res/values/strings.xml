@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MotoTrack Touring Logger</string>
+    <string name="title_activity_main">MotoTrack Touring Logger</string>
+    <string name="package_name">com.mototrack.touringlogger</string>
+    <string name="custom_url_scheme">com.mototrack.touringlogger</string>
+</resources>
