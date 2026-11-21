@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
+import { Geolocation } from '@capacitor/geolocation';
 import { 
   GPSPoint, 
   RouteSegment, 
@@ -89,6 +90,53 @@ export function App() {
     setThresholds(newThresh);
     saveThresholds(newThresh);
   };
+
+  // Request GPS Permissions via Capacitor Native
+  const requestGPSPermission = async () => {
+    try {
+      const perm = await Geolocation.checkPermissions();
+      if (perm.location !== 'granted') {
+        const req = await Geolocation.requestPermissions();
+        if (req.location !== 'granted') {
+          setGpsError('Izin lokasi ditolak. Silakan izinkan akses lokasi di Pengaturan HP Anda.');
+          return false;
+        }
+      }
+      setGpsError(null);
+      return true;
+    } catch (e) {
+      console.warn('Geolocation check permission error', e);
+      return true;
+    }
+  };
+
+  // Dapatkan lokasi awal saat pertama kali aplikasi dibuka agar peta langsung muncul
+  useEffect(() => {
+    const fetchInitialLocation = async () => {
+      try {
+        const hasPerm = await requestGPSPermission();
+        if (hasPerm) {
+          const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 });
+          if (pos && pos.coords) {
+            setCurrentPoint({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              altitude: pos.coords.altitude,
+              speed: 0,
+              heading: pos.coords.heading,
+              accuracy: pos.coords.accuracy,
+              timestamp: pos.timestamp
+            });
+            setGpsError(null);
+          }
+        }
+      } catch (err) {
+        console.warn('Initial location fetch fallback:', err);
+      }
+    };
+
+    fetchInitialLocation();
+  }, []);
 
   // Screen WakeLock Management
   useEffect(() => {
@@ -206,48 +254,81 @@ export function App() {
   };
 
   // Start Real GPS Recording
-  const startRecording = () => {
+  const startRecording = async () => {
     if (isSimulating) stopSimulation();
 
     setGpsError(null);
+    const hasPerm = await requestGPSPermission();
+    if (!hasPerm) return;
+
     setStatus('recording');
     sessionStartTimeRef.current = Date.now();
 
-    if ('geolocation' in navigator) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (position) => {
-          const speedKmh = msToKmh(position.coords.speed);
-          const newPt: GPSPoint = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            altitude: position.coords.altitude,
-            speed: Number(speedKmh.toFixed(1)),
-            heading: position.coords.heading,
-            accuracy: position.coords.accuracy,
-            timestamp: position.timestamp
-          };
-          handleNewGPSPoint(newPt);
-        },
-        (error) => {
-          console.warn('Geolocation watch error:', error);
-          setGpsError('Sinyal GPS lemah atau izin lokasi belum diberikan. Pastikan GPS aktif di Android Anda.');
-        },
+    try {
+      const watchId = await Geolocation.watchPosition(
         {
           enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 10000
+          timeout: 10000,
+          maximumAge: 1000
+        },
+        (position, error) => {
+          if (error) {
+            console.warn('Geolocation watch error:', error);
+            setGpsError('Sinyal GPS lemah atau belum terhubung. Pastikan GPS HP Anda aktif.');
+            return;
+          }
+          if (position && position.coords) {
+            setGpsError(null);
+            const speedKmh = msToKmh(position.coords.speed);
+            const newPt: GPSPoint = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              altitude: position.coords.altitude,
+              speed: Number(speedKmh.toFixed(1)),
+              heading: position.coords.heading,
+              accuracy: position.coords.accuracy,
+              timestamp: position.timestamp
+            };
+            handleNewGPSPoint(newPt);
+          }
         }
       );
-    } else {
-      setGpsError('Geolocation tidak didukung pada perangkat ini.');
+      watchIdRef.current = watchId as any;
+    } catch (err) {
+      console.warn('Fallback geolocation error:', err);
+      // Fallback ke browser navigator.geolocation jika Capacitor tidak tersedia
+      if ('geolocation' in navigator) {
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          (pos) => {
+            const speedKmh = msToKmh(pos.coords.speed);
+            handleNewGPSPoint({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              altitude: pos.coords.altitude,
+              speed: Number(speedKmh.toFixed(1)),
+              heading: pos.coords.heading,
+              accuracy: pos.coords.accuracy,
+              timestamp: pos.timestamp
+            });
+          },
+          () => setGpsError('Sinyal GPS lemah atau izin lokasi belum diberikan.'),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      }
     }
   };
 
   // Pause Recording
-  const pauseRecording = () => {
+  const pauseRecording = async () => {
     setStatus('paused');
     if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
+      try {
+        await Geolocation.clearWatch({ id: watchIdRef.current as any });
+      } catch (e) {
+        if ('geolocation' in navigator) {
+          navigator.geolocation.clearWatch(watchIdRef.current as any);
+        }
+      }
       watchIdRef.current = null;
     }
     setStats((prev) => ({ ...prev, currentSpeed: 0 }));
@@ -259,9 +340,15 @@ export function App() {
   };
 
   // Finish & Save Session
-  const finishRecording = () => {
+  const finishRecording = async () => {
     if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
+      try {
+        await Geolocation.clearWatch({ id: watchIdRef.current as any });
+      } catch (e) {
+        if ('geolocation' in navigator) {
+          navigator.geolocation.clearWatch(watchIdRef.current as any);
+        }
+      }
       watchIdRef.current = null;
     }
     stopSimulation();
@@ -405,12 +492,20 @@ export function App() {
 
       {/* GPS Warning Banner if any */}
       {gpsError && (
-        <div className="mx-4 mt-3 bg-red-950/40 border border-red-500/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-red-300">
-          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <span className="font-bold block">Peringatan GPS:</span>
-            {gpsError}
+        <div className="mx-4 mt-3 bg-red-950/50 border border-red-500/50 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs text-red-200 shadow-lg">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block text-red-300">Peringatan GPS:</span>
+              <span className="text-[11px] text-slate-300">{gpsError}</span>
+            </div>
           </div>
+          <button
+            onClick={() => requestGPSPermission()}
+            className="px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white font-bold text-[11px] rounded-xl shrink-0 transition-all shadow"
+          >
+            Beri Izin
+          </button>
         </div>
       )}
 

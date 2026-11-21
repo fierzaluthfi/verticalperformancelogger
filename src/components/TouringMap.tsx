@@ -47,12 +47,24 @@ export const TouringMap: React.FC<TouringMapProps> = ({
 
     mapInstanceRef.current = map;
 
+    // Fix map container sizing in mobile Android Webview
+    const timer1 = setTimeout(() => map.invalidateSize(), 100);
+    const timer2 = setTimeout(() => map.invalidateSize(), 400);
+    const timer3 = setTimeout(() => map.invalidateSize(), 1000);
+
+    const handleResize = () => map.invalidateSize();
+    window.addEventListener('resize', handleResize);
+
     // Deteksi jika user drag/pan manual, hentikan follow otomatis sementara
     map.on('dragstart', () => {
       setFollowRider(false);
     });
 
     return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+      window.removeEventListener('resize', handleResize);
       map.remove();
       mapInstanceRef.current = null;
     };
@@ -70,11 +82,14 @@ export const TouringMap: React.FC<TouringMapProps> = ({
       }
     });
 
-    let tileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    let tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
     let subdomains = 'abcd';
     let maxZoom = 19;
 
-    if (mapStyle === 'streets') {
+    if (mapStyle === 'dark') {
+      tileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      subdomains = 'abcd';
+    } else if (mapStyle === 'streets') {
       tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
       subdomains = 'abc';
     } else if (mapStyle === 'satellite') {
@@ -82,10 +97,17 @@ export const TouringMap: React.FC<TouringMapProps> = ({
       subdomains = 'abc';
     }
 
-    L.tileLayer(tileUrl, {
+    const tileLayer = L.tileLayer(tileUrl, {
       subdomains,
-      maxZoom
+      maxZoom,
+      attribution: '&copy; OpenStreetMap'
     }).addTo(map);
+
+    tileLayer.on('tileerror', (e) => {
+      console.warn('Tile load error, retrying', e);
+    });
+
+    map.invalidateSize();
   }, [mapStyle]);
 
   // Update rute polyline warna-warni (Speed sectors)
