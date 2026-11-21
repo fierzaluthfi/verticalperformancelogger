@@ -25,7 +25,7 @@ export const TouringMap: React.FC<TouringMapProps> = ({
   const startMarkerRef = useRef<L.Marker | null>(null);
   const endMarkerRef = useRef<L.Marker | null>(null);
 
-  const [mapStyle, setMapStyle] = useState<'dark' | 'streets' | 'satellite'>('dark');
+  const [mapStyle, setMapStyle] = useState<'dark' | 'streets' | 'satellite' | 'topo'>('dark');
   const [followRider, setFollowRider] = useState(autoCenter);
 
   // Inisialisasi peta Leaflet
@@ -70,7 +70,7 @@ export const TouringMap: React.FC<TouringMapProps> = ({
     };
   }, []);
 
-  // Update Tile Layer sesuai tema pilihan (Dark mode sangat pas untuk kontras polyline merah/hijau/oren)
+  // Update Tile Layer bebas API Key 100% (OpenStreetMap Community & Esri ArcGIS)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -82,29 +82,45 @@ export const TouringMap: React.FC<TouringMapProps> = ({
       }
     });
 
-    let tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-    let subdomains = 'abcd';
+    // Provider OpenStreetMap yang 100% Bebas API Key tanpa registrasi
+    let tileUrl = 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+    let tileClassName = '';
     let maxZoom = 19;
 
     if (mapStyle === 'dark') {
-      tileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-      subdomains = 'abcd';
+      // Dark Mode menggunakan OpenStreetMap tile dengan custom CSS filter (Bebas API Key)
+      tileUrl = 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+      tileClassName = 'dark-map-tiles';
     } else if (mapStyle === 'streets') {
-      tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-      subdomains = 'abc';
+      // Peta Jalan Standar OpenStreetMap Publik
+      tileUrl = 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+      tileClassName = '';
     } else if (mapStyle === 'satellite') {
-      tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      subdomains = 'abc';
+      // Peta Citra Satelit Esri ArcGIS (Bebas API Key Publik)
+      tileUrl = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      maxZoom = 18;
+      tileClassName = '';
+    } else if (mapStyle === 'topo') {
+      // Peta Topografi Kontur Gunung Esri (Bebas API Key)
+      tileUrl = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}';
+      maxZoom = 18;
+      tileClassName = '';
     }
 
     const tileLayer = L.tileLayer(tileUrl, {
-      subdomains,
       maxZoom,
-      attribution: '&copy; OpenStreetMap'
+      className: tileClassName,
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    tileLayer.on('tileerror', (e) => {
-      console.warn('Tile load error, retrying', e);
+    tileLayer.on('tileerror', () => {
+      // Fallback otomatis ke tile openstreetmap.fr jika terjadi kendala jaringan
+      if (!tileUrl.includes('openstreetmap.fr')) {
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          className: tileClassName
+        }).addTo(map);
+      }
     });
 
     map.invalidateSize();
@@ -263,6 +279,15 @@ export const TouringMap: React.FC<TouringMapProps> = ({
             }`}
           >
             SAT
+          </button>
+          <button
+            onClick={() => setMapStyle('topo')}
+            title="Topographic Terrain Map"
+            className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all ${
+              mapStyle === 'topo' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            TOPO
           </button>
         </div>
 

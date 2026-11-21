@@ -62,3 +62,9 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+
+/* Dark Touring Map Tile styling (Bebas API Key 100%) */
+.dark-map-tiles {
+  filter: brightness(0.65) invert(1) contrast(2.6) hue-rotate(205deg) saturate(0.4) brightness(0.75) !important;
+}
